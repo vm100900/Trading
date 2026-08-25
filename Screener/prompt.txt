@@ -1,0 +1,985 @@
+
+
+Act as an expert quantitative developer and algorithmic trading systems architect specializing in **Rust**, financial-data systems, Interactive Brokers TWS/API, asynchronous programming, and high-performance market-data processing.
+
+Build a **production-quality, highly efficient multi-stage stock and ETF screener in Rust** that implements a strict sequential multi-timeframe technical filter.
+
+The primary architectural objective is to **minimize Interactive Brokers historical-data API requests** by eliminating as many symbols as possible during the inexpensive daily screening stage.
+
+The screening pipeline must be strictly sequential:
+
+```text
+Full Universe
+    ↓
+Phase 1 — Daily Macro Filter via Yahoo Finance
+    ↓
+Phase 2 — 30-Minute Micro-Trend Filter via IBKR
+    ↓
+Phase 3 — 2-Minute Intraday + VWAP Filter via IBKR
+    ↓
+Final Watchlist
+```
+
+A symbol that fails a phase must **never** proceed to the next phase.
+
+---
+
+# 1. Technology Requirements
+
+Implement the application entirely in **Rust**.
+
+Prefer stable Rust and idiomatic asynchronous Rust.
+
+Use appropriate Rust crates for:
+
+* HTTP/API communication
+* Yahoo Finance data retrieval
+* Interactive Brokers API communication
+* asynchronous execution
+* JSON/configuration
+* CSV parsing if needed
+* date/time and timezone handling
+* structured logging
+* error handling
+
+If a mature direct Rust client for a required API is unavailable, implement the required protocol/API interaction cleanly rather than switching the project to Python.
+
+Do not use Python, `yfinance`, or `ib_insync` in the implementation. Their functionality should be reproduced using appropriate Rust libraries/APIs.
+
+Use an architecture based on:
+
+* `tokio`
+* async/await
+* strongly typed structs/enums
+* `Result`-based error handling
+* centralized configuration
+* structured logging
+
+Avoid unnecessary dependencies.
+
+---
+
+# 2. Core Design Goals
+
+Prioritize the following in order:
+
+1. Correctness
+2. No look-ahead bias
+3. Minimal IBKR API usage
+4. IBKR pacing compliance
+5. Robust error handling
+6. Deterministic screening
+7. Efficient asynchronous execution
+8. Maintainable Rust architecture
+
+The application must process symbols sequentially through the three filtering stages.
+
+Do not request intraday IBKR data for symbols eliminated by earlier phases.
+
+---
+
+# 3. Configuration
+
+Make all operational parameters configurable.
+
+At minimum support configuration for:
+
+* Yahoo Finance settings
+* IBKR host
+* IBKR port
+* IBKR client ID
+* IBKR connection timeout
+* universe source
+* Phase 1 historical period
+* Phase 2 historical period
+* Phase 3 historical period
+* IBKR pacing interval
+* retry count
+* retry/backoff parameters
+* RTH settings
+* timezone
+* logging level
+
+Support both TWS and IB Gateway.
+
+Provide sensible defaults:
+
+```text
+TWS live:      7496
+TWS paper:     7497
+IB Gateway live: 4001
+IB Gateway paper: 4002
+```
+
+but do not assume these ports are universal. They must be configurable.
+
+---
+
+# 4. Timezone and Trading Session
+
+All US equity session calculations must explicitly use:
+
+```text
+America/New_York
+```
+
+Do not rely on the operating system's local timezone.
+
+US regular trading hours are:
+
+```text
+09:30–16:00 America/New_York
+```
+
+Use regular trading hours for IBKR historical data.
+
+The implementation must correctly handle daylight-saving-time transitions and US market holidays.
+
+---
+
+# 5. Phase 1 — Daily Macro Filter
+
+## 5.1 Input
+
+Accept a configurable universe of stocks and ETFs.
+
+Example:
+
+```text
+AAPL
+MSFT
+NVDA
+AMZN
+SPY
+QQQ
+```
+
+The universe may contain hundreds or thousands of symbols.
+
+---
+
+## 5.2 Yahoo Finance Data
+
+Retrieve sufficient daily OHLCV history for every symbol.
+
+Do not interpret "260 days" as 260 calendar days.
+
+The implementation must guarantee at least:
+
+```text
+207 valid completed daily bars
+```
+
+because the strategy requires:
+
+```text
+200 bars for SMA200
++
+5 additional historical bars for the SMA200 slope comparison
+```
+
+Prefer approximately one year of calendar history or another sufficiently large safety buffer.
+
+Use adjusted prices consistently and explicitly configure the adjustment behavior.
+
+Handle Yahoo Finance response formats, including cases where data may contain hierarchical/MultiIndex-style columns.
+
+---
+
+# 6. Phase 1 Indicators
+
+Calculate:
+
+```text
+SMA10
+SMA20
+SMA50
+SMA200
+```
+
+Use standard simple moving averages.
+
+Do not use EMA.
+
+For an N-period SMA:
+
+```text
+SMA_N[t] = arithmetic mean of the latest N completed closes
+```
+
+---
+
+# 7. Phase 1 SMA200 Slope
+
+The SMA200 slope period is **exactly 5 trading sessions**.
+
+Do not use 7 sessions.
+
+Define the positive slope condition as:
+
+```text
+SMA200[current]
+>
+SMA200[5 completed trading sessions ago]
+```
+
+Formally:
+
+```rust
+sma200_current > sma200_5_bars_ago
+```
+
+The comparison must be based on trading bars, not calendar days.
+
+---
+
+# 8. Phase 1 Filter
+
+A symbol survives Phase 1 ONLY if all conditions are true:
+
+```text
+Latest completed daily close
+    >
+SMA10
+    >
+SMA20
+    >
+SMA50
+    >
+SMA200
+```
+
+AND:
+
+```text
+SMA200[current]
+    >
+SMA200[5 trading bars ago]
+```
+
+Equivalent logic:
+
+```text
+close > sma10
+&& sma10 > sma20
+&& sma20 > sma50
+&& sma50 > sma200
+&& sma200_current > sma200_5_bars_ago
+```
+
+Any missing indicator, insufficient data, invalid value, or malformed dataset causes the symbol to fail Phase 1.
+
+The latest daily price must mean:
+
+```text
+latest completed daily close
+```
+
+Do not use a live/intraday price for Phase 1.
+
+---
+
+# 9. Phase 1 Output
+
+Create a collection of Phase 1 survivors.
+
+Only those survivors may enter Phase 2.
+
+Do not make any IBKR historical-data request for symbols that fail Phase 1.
+
+---
+
+# 10. Phase 2 — 30-Minute Micro-Trend Filter
+
+Connect to Interactive Brokers TWS or IB Gateway using an appropriate Rust implementation of the IBKR API.
+
+Use an asynchronous Tokio-based architecture.
+
+Maintain one persistent IBKR connection for the screening run.
+
+Do not repeatedly connect and disconnect for individual symbols.
+
+---
+
+# 11. Phase 2 Contract Handling
+
+For every Phase 1 survivor, represent US equities using the equivalent of:
+
+```text
+Security type: STK
+Exchange: SMART
+Currency: USD
+```
+
+Qualify contracts before requesting historical data.
+
+Cache qualified contracts.
+
+Do not repeatedly qualify the same symbol.
+
+Gracefully handle:
+
+* invalid symbols
+* delisted securities
+* ambiguous contracts
+* contract qualification failures
+* unavailable securities
+
+without terminating the complete screening run.
+
+---
+
+# 12. Phase 2 Historical Data
+
+For ONLY the Phase 1 survivors, request approximately:
+
+```text
+7 trading days
+30-minute bars
+```
+
+Use IBKR historical data with:
+
+```text
+Bar size: 30 mins
+What to show: TRADES
+Regular trading hours: enabled
+```
+
+Ensure that enough completed bars exist to calculate:
+
+```text
+SMA7
+SMA17
+SMA33
+SMA65
+```
+
+Require at least 65 valid completed bars, preferably with a safety buffer.
+
+Sort bars chronologically before calculations.
+
+Handle duplicate timestamps safely.
+
+---
+
+# 13. Phase 2 Indicators
+
+Calculate:
+
+```text
+SMA7
+SMA17
+SMA33
+SMA65
+```
+
+using standard simple moving averages.
+
+---
+
+# 14. Phase 2 SMA65 Slope
+
+The SMA65 slope condition is based on the latest two **completed** 30-minute bars.
+
+Require:
+
+```text
+SMA65[current]
+>
+SMA65[previous completed bar]
+```
+
+Formally:
+
+```rust
+sma65_current > sma65_previous
+```
+
+Do not use the currently forming 30-minute bar.
+
+---
+
+# 15. Phase 2 Filter
+
+A symbol survives Phase 2 ONLY if:
+
+```text
+Latest completed 30-minute close
+    >
+SMA7
+    >
+SMA17
+    >
+SMA33
+    >
+SMA65
+```
+
+AND:
+
+```text
+SMA65[current]
+    >
+SMA65[previous completed bar]
+```
+
+Equivalent logic:
+
+```text
+close > sma7
+&& sma7 > sma17
+&& sma17 > sma33
+&& sma33 > sma65
+&& sma65_current > sma65_previous
+```
+
+The current price for this phase is strictly:
+
+```text
+latest completed 30-minute close
+```
+
+---
+
+# 16. Phase 2 Output
+
+Only Phase 2 survivors may proceed to Phase 3.
+
+Never request Phase 3 data for symbols eliminated during Phase 2.
+
+---
+
+# 17. Phase 3 — 2-Minute Intraday + VWAP Filter
+
+For ONLY Phase 2 survivors, request approximately:
+
+```text
+2–3 trading days
+2-minute bars
+```
+
+Two trading days is mathematically sufficient for SMA100, but approximately three trading days is preferred as a safety buffer if pacing limits permit.
+
+Use:
+
+```text
+Bar size: 2 mins
+What to show: TRADES
+Regular trading hours: enabled
+```
+
+Ensure sufficient completed bars exist for:
+
+```text
+SMA20
+SMA50
+SMA100
+```
+
+Require at least 100 valid completed bars, preferably with a safety buffer.
+
+---
+
+# 18. Phase 3 Indicators
+
+Calculate:
+
+```text
+SMA20
+SMA50
+SMA100
+```
+
+using standard simple moving averages.
+
+---
+
+# 19. Phase 3 Daily VWAP
+
+Calculate **current-session RTH VWAP only**.
+
+VWAP must reset at:
+
+```text
+09:30 America/New_York
+```
+
+Previous trading sessions must not contribute to the current day's VWAP.
+
+For each current-session 2-minute bar:
+
+```text
+Typical Price = (High + Low + Close) / 3
+```
+
+Then:
+
+```text
+VWAP =
+Σ(Typical Price × Volume)
+/
+Σ(Volume)
+```
+
+Only current-session RTH bars may be included.
+
+The VWAP used for the signal must correspond to the latest completed 2-minute bar.
+
+If cumulative session volume is zero or invalid, do not generate a signal.
+
+---
+
+# 20. Phase 3 Filter
+
+A symbol survives Phase 3 ONLY if:
+
+```text
+Latest completed 2-minute close
+    >
+SMA20
+    >
+SMA50
+    >
+SMA100
+```
+
+AND:
+
+```text
+Latest completed 2-minute close
+    >
+Current-session VWAP
+```
+
+Equivalent logic:
+
+```text
+close > sma20
+&& sma20 > sma50
+&& sma50 > sma100
+&& close > current_session_vwap
+```
+
+The price must be:
+
+```text
+latest completed 2-minute close
+```
+
+Do not use the live/forming 2-minute bar.
+
+---
+
+# 21. No Look-Ahead Bias
+
+This is a hard requirement.
+
+Never evaluate any signal using an incomplete bar.
+
+Use:
+
+```text
+Phase 1 → latest completed daily bar
+Phase 2 → latest completed 30-minute bar
+Phase 3 → latest completed 2-minute bar
+```
+
+The screener must be reproducible using historical data available at the signal timestamp.
+
+---
+
+# 22. IBKR Rate Limiting
+
+Implement a **centralized asynchronous historical-data rate limiter**.
+
+Do not rely merely on:
+
+```text
+sleep(1 second)
+```
+
+between individual requests.
+
+The limiter must coordinate all IBKR historical-data requests across Phase 2 and Phase 3.
+
+Use Tokio-compatible asynchronous delays rather than blocking the runtime.
+
+The architecture should support:
+
+* configurable request intervals
+* controlled concurrency
+* retry handling
+* exponential backoff
+* randomized jitter
+* pacing-error detection
+* connection-error recovery where appropriate
+
+Do not retry indefinitely.
+
+The system must prioritize IBKR pacing compliance over maximum request concurrency.
+
+---
+
+# 23. Controlled Concurrency
+
+Do not issue unrestricted batches of historical requests.
+
+Avoid launching hundreds of simultaneous requests.
+
+Use a controlled asynchronous worker/request-queue architecture.
+
+The desired behavior is:
+
+```text
+Phase 1 survivors
+       ↓
+Rate-limited request queue
+       ↓
+IBKR
+       ↓
+Results
+```
+
+The same centralized pacing mechanism must protect both Phase 2 and Phase 3.
+
+---
+
+# 24. Error Handling
+
+Use strongly typed Rust errors where practical.
+
+Do not use broad error swallowing.
+
+At minimum distinguish:
+
+```text
+TechnicalFilterFailed
+InsufficientData
+InvalidSymbol
+ContractQualificationFailed
+NoData
+Timeout
+PacingViolation
+IBKRApiError
+ConnectionError
+CalculationError
+YahooDataError
+```
+
+A symbol with unavailable data must NOT be counted as a technical filter failure.
+
+Errors should be recorded and the screening process should continue for other symbols.
+
+---
+
+# 25. Data Validation
+
+Before calculating indicators validate:
+
+* DataFrame/vector is non-empty
+* required OHLCV fields exist
+* timestamps are valid
+* timestamps are chronologically sorted
+* duplicate timestamps are handled
+* required number of bars exists
+* OHLC values are numeric and valid
+* volume is valid
+* there are no unexpected NaN/invalid values in required calculation inputs
+
+Never generate a signal from insufficient data.
+
+---
+
+# 26. Session Handling
+
+The implementation must correctly handle:
+
+* weekends
+* US market holidays
+* early market closures where relevant
+* daylight-saving-time changes
+* pre-market data
+* after-hours data
+* current-session partial data
+
+Because `useRTH` is required, the screener must not accidentally incorporate pre-market or after-hours bars into the technical calculations.
+
+---
+
+# 27. Rust Architecture
+
+Use a clean modular architecture similar to:
+
+```text
+src/
+├── main.rs
+├── config.rs
+├── error.rs
+├── models.rs
+├── screener.rs
+│
+├── data/
+│   ├── mod.rs
+│   ├── yahoo.rs
+│   └── ibkr.rs
+│
+├── indicators/
+│   ├── mod.rs
+│   ├── sma.rs
+│   └── vwap.rs
+│
+├── ibkr/
+│   ├── mod.rs
+│   ├── connection.rs
+│   ├── contracts.rs
+│   └── rate_limiter.rs
+│
+└── reporting.rs
+```
+
+The exact structure may differ if a better Rust architecture is appropriate.
+
+Maintain clear separation between:
+
+* data acquisition
+* market-data normalization
+* indicator calculations
+* screening logic
+* IBKR connection management
+* contract qualification
+* rate limiting
+* error handling
+* reporting
+
+---
+
+# 28. Strongly Typed Models
+
+Use Rust structs/enums to represent concepts such as:
+
+```text
+Bar
+DailyBar
+IntradayBar
+QualifiedContract
+ScreeningResult
+PhaseResult
+ScreeningError
+```
+
+Avoid passing loosely structured maps throughout the application when a strongly typed model is appropriate.
+
+---
+
+# 29. Terminal Output
+
+Print structured runtime status.
+
+At minimum:
+
+```text
+==================================================
+MULTI-TIMEFRAME SCREENER
+==================================================
+
+Universe:
+    Started: XXXXX
+
+Phase 1 — DAILY:
+    Started: XXXXX
+    Passed: XXXXX
+    Technical failures: XXXXX
+    Errors: XXXXX
+
+Phase 2 — 30-MINUTE:
+    Started: XXXXX
+    Passed: XXXXX
+    Technical failures: XXXXX
+    Errors: XXXXX
+
+Phase 3 — 2-MINUTE:
+    Started: XXXXX
+    Passed: XXXXX
+    Technical failures: XXXXX
+    Errors: XXXXX
+
+==================================================
+FINAL WATCHLIST
+==================================================
+
+AAPL
+NVDA
+MSFT
+...
+
+==================================================
+SUMMARY
+==================================================
+
+Total universe: XXXXX
+Phase 1 survivors: XXXXX
+Phase 2 survivors: XXXXX
+Final watchlist: XXXXX
+Total runtime: XX.XX seconds
+==================================================
+```
+
+Include sufficient logging to diagnose individual symbol failures.
+
+---
+
+# 30. Efficiency Requirements
+
+The implementation must optimize for API efficiency.
+
+For example, if:
+
+```text
+1,000 symbols
+```
+
+enter Phase 1 and only:
+
+```text
+150 symbols
+```
+
+survive, Phase 2 must process only those 150.
+
+If only:
+
+```text
+30 symbols
+```
+
+survive Phase 2, Phase 3 must process only those 30.
+
+Never re-expand the universe between phases.
+
+The number of IBKR requests should therefore be approximately proportional to the number of symbols surviving the previous phase.
+
+---
+
+# 31. Caching
+
+Where practical, cache:
+
+* qualified IBKR contracts
+* normalized symbol metadata
+* other information that does not change during a screening run
+
+Do not unnecessarily cache stale market data in a way that could produce incorrect signals.
+
+---
+
+# 32. Testing
+
+Include unit tests and/or integration-testable components for:
+
+1. SMA calculations
+2. SMA200 five-session slope
+3. SMA65 one-bar slope
+4. VWAP calculation
+5. VWAP session reset
+6. Phase 1 filtering
+7. Phase 2 filtering
+8. Phase 3 filtering
+9. insufficient-data handling
+10. malformed data
+11. duplicate timestamps
+12. incomplete-bar exclusion
+13. zero-volume VWAP handling
+14. invalid symbols
+15. contract qualification failure
+16. IBKR pacing errors
+17. retry/backoff behavior
+18. connection failures
+19. US market timezone handling
+20. daylight-saving-time transitions
+21. market holidays
+22. empty Phase 1 result
+23. empty Phase 2 result
+24. empty Phase 3 result
+
+Indicator calculations should be deterministic and independently testable.
+
+---
+
+# 33. Exact Mathematical Specification
+
+Do not modify these rules.
+
+### Phase 1
+
+```text
+Close > SMA10 > SMA20 > SMA50 > SMA200
+```
+
+AND:
+
+```text
+SMA200[t] > SMA200[t-5]
+```
+
+where `t-5` means five completed trading sessions before the current completed daily bar.
+
+### Phase 2
+
+```text
+Close_30m > SMA7 > SMA17 > SMA33 > SMA65
+```
+
+AND:
+
+```text
+SMA65[t] > SMA65[t-1]
+```
+
+where both bars are completed 30-minute bars.
+
+### Phase 3
+
+```text
+Close_2m > SMA20 > SMA50 > SMA100
+```
+
+AND:
+
+```text
+Close_2m > CurrentSessionVWAP
+```
+
+All comparisons must be strict `>` comparisons.
+
+Do not substitute `>=`.
+
+---
+
+# 34. Final Deliverable
+
+Provide the complete Rust implementation.
+
+Include:
+
+1. Complete Rust source code
+2. `Cargo.toml`
+3. Required dependencies
+4. Configuration example
+5. IBKR/TWS/Gateway configuration instructions
+6. Build and run instructions
+7. Explanation of the three-stage architecture
+8. Explanation of the IBKR asynchronous request architecture
+9. Explanation of the centralized pacing/rate limiter
+10. Explanation of the five-session SMA200 slope
+11. Explanation of current-session VWAP
+12. Explanation of incomplete-bar handling
+13. Example terminal output
+14. Unit tests for the core technical calculations
+15. Important assumptions and limitations
+
+The final implementation must preserve the exact screening logic, timeframe definitions, SMA periods, **5-session Phase 1 SMA200 slope**, Phase 2 SMA65 slope, current-session VWAP calculation, completed-bar requirement, and sequential filtering architecture specified above.
+
+Do not silently change any mathematical condition or timeframe.
+
+
