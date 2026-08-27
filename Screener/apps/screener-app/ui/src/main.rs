@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+mod dto;
+
 fn main() {
     dioxus::launch(App);
 }
