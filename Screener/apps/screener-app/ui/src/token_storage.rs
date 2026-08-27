@@ -4,14 +4,22 @@ use gloo_storage::{LocalStorage, Storage};
 
 pub trait TokenStorage: Send + Sync {
     fn get(&self) -> Option<String>;
+    // Used by `InMemoryTokenStorage` in tests and by `LocalTokenStorage` at
+    // runtime (login flow); the non-test build only ever reads the token.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn set(&self, token: &str);
 }
 
+/// In-memory `TokenStorage` used by tests — the runtime uses
+/// `LocalTokenStorage`. Compile-verified in every build, exercised by the
+/// unit tests below.
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Default)]
 pub struct InMemoryTokenStorage {
     token: Mutex<Option<String>>,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 impl InMemoryTokenStorage {
     pub fn new() -> Self {
         Self::default()
