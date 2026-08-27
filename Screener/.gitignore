@@ -1,3 +1,6 @@
 /target
 /Cargo.lock
-/deploy/.env
+
+# deploy/.env is force-tracked at the owner's request (private repo).
+# Keep it to the generated token + PLACEHOLDER IBKR creds. Put the real
+# TWS_USERID / TWS_PASSWORD only in the server's copy — never commit those.
