@@ -25,6 +25,7 @@ async fn health() -> StatusCode {
 pub fn build_router(state: AppState) -> Router {
     use axum::middleware;
     use axum::routing::{get as get_route, post};
+    use tower_http::cors::CorsLayer;
 
     let protected = Router::new()
         .route(
@@ -40,6 +41,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/runs/{id}/stream", get_route(routes::run_stream))
         .merge(protected)
         .with_state(state)
+        // The app's frontend is WASM (`reqwest` -> browser fetch) served from
+        // a `tauri://`/`http://…localhost` origin, so every REST call is
+        // cross-origin and subject to CORS. Auth is by bearer token (a
+        // header, not a cookie), so a wildcard policy is safe here and keeps
+        // the webview origin — which isn't stable — from mattering.
+        .layer(CorsLayer::permissive())
 }
 
 #[cfg(test)]

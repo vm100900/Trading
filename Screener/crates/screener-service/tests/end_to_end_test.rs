@@ -90,3 +90,47 @@ async fn full_lifecycle_config_update_then_run_then_history() {
     assert_eq!(runs[0]["status"], "completed");
     assert_eq!(runs[0]["final_watchlist"], serde_json::json!(["NVDA"]));
 }
+
+#[tokio::test]
+async fn cors_preflight_is_allowed_without_auth_and_get_echoes_allow_origin() {
+    let state = AppState {
+        auth_token: "test-token".to_string(),
+        filter_config_store: Arc::new(InMemoryFilterConfigStore::new()),
+        run_store: Arc::new(InMemoryRunStore::new()),
+        engine: Arc::new(FakeScreeningEngine { final_watchlist: vec![] }),
+        progress_channels: Default::default(),
+    };
+    let app = build_router(state);
+
+    // A browser preflight carries no Authorization header — it must still get
+    // a 2xx with permissive CORS headers, or the real request never fires.
+    let preflight = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/filter-config")
+                .header("origin", "http://tauri.localhost")
+                .header("access-control-request-method", "GET")
+                .header("access-control-request-headers", "authorization")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(preflight.status().is_success());
+    assert_eq!(preflight.headers()["access-control-allow-origin"], "*");
+
+    // And an actual GET response carries the allow-origin header too.
+    let get = app
+        .oneshot(
+            Request::get("/health")
+                .header("origin", "http://tauri.localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get.status(), StatusCode::OK);
+    assert_eq!(get.headers()["access-control-allow-origin"], "*");
+}
