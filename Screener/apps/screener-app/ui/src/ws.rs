@@ -16,8 +16,8 @@ pub fn build_stream_url(http_base: &str, token: &str, run_id: &str) -> String {
 }
 
 pub struct StreamHandlers {
-    pub on_event: Box<dyn Fn(ProgressEvent)>,
-    pub on_close: Box<dyn Fn()>,
+    pub on_event: Box<dyn FnMut(ProgressEvent)>,
+    pub on_close: Box<dyn FnMut()>,
 }
 
 /// Opens the run-progress WebSocket and forwards parsed `ProgressEvent`s to
@@ -28,20 +28,21 @@ pub struct StreamHandlers {
 pub fn connect_run_stream(http_base: &str, token: &str, run_id: &str, handlers: StreamHandlers) {
     let url = build_stream_url(http_base, token, run_id);
     wasm_bindgen_futures::spawn_local(async move {
+        let StreamHandlers { mut on_event, mut on_close } = handlers;
         let ws = match WebSocket::open(&url) {
             Ok(ws) => ws,
             Err(_) => {
-                (handlers.on_close)();
+                on_close();
                 return;
             }
         };
         let (_write, mut read) = ws.split();
         while let Some(Ok(Message::Text(text))) = read.next().await {
             if let Ok(event) = serde_json::from_str::<ProgressEvent>(&text) {
-                (handlers.on_event)(event);
+                on_event(event);
             }
         }
-        (handlers.on_close)();
+        on_close();
     });
 }
 
