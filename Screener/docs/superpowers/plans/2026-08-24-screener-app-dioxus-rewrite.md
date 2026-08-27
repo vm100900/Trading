@@ -86,14 +86,14 @@ apps/screener-app/node_modules/
 **Interfaces:**
 - Produces: a working `dx build --platform web` pipeline whose output Tauri serves; a placeholder `App` component later tasks replace piece by piece.
 
-- [ ] **Step 1: Delete the old JS frontend**
+- [x] **Step 1: Delete the old JS frontend**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app
 rm -rf src test package.json package-lock.json vite.config.js node_modules
 ```
 
-- [ ] **Step 2: Create the `ui` crate**
+- [x] **Step 2: Create the `ui` crate**
 
 `apps/screener-app/ui/Cargo.toml`:
 
@@ -178,7 +178,7 @@ fn App() -> Element {
 }
 ```
 
-- [ ] **Step 3: Verify the crate builds for both targets**
+- [x] **Step 3: Verify the crate builds for both targets**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -188,7 +188,7 @@ dx build --platform web
 
 Expected: both succeed. `dx build` prints `Client build completed successfully!` with a path ending in `ui/target/dx/screener-ui/debug/web/public`.
 
-- [ ] **Step 4: Point Tauri at the Dioxus build output**
+- [x] **Step 4: Point Tauri at the Dioxus build output**
 
 In `apps/screener-app/src-tauri/tauri.conf.json`, replace the `"build"` section (currently `{ "frontendDist": "../dist", "devUrl": "http://localhost:1420", "beforeDevCommand": "npm run dev", "beforeBuildCommand": "npm run build" }`, an interim Vite-based fix from earlier debugging) with:
 
@@ -202,7 +202,7 @@ In `apps/screener-app/src-tauri/tauri.conf.json`, replace the `"build"` section 
 
 No `devUrl` — `beforeDevCommand` always produces a fresh static build and Tauri serves it directly, avoiding a second moving part (a live dev server) while this gets proven out.
 
-- [ ] **Step 5: Real, visual verification that it renders — not just that it compiles**
+- [x] **Step 5: Real, visual verification that it renders — not just that it compiles**
 
 ```bash
 pkill -f target/debug/screener-app 2>/dev/null
@@ -225,7 +225,7 @@ convert /tmp/verify.xwd /tmp/verify.png
 
 Read `/tmp/verify.png` and confirm it shows the "screener-app" nav text and "loading..." — not a blank white window. This is the actual regression test for the original bug; do not skip it.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/vijay/Study/Screener
@@ -245,7 +245,7 @@ git commit -m "Replace screener-app JS frontend with a Dioxus (WASM) crate"
 **Interfaces:**
 - Produces: `Phase1ConfigDto`, `Phase2ConfigDto`, `Phase3ConfigDto`, `FilterConfigDto` (all `Debug + Clone + PartialEq + Serialize + Deserialize + Default`), `RunStatus` (`Running`/`Completed`/`Failed`, `#[serde(rename_all = "snake_case")]`), `RunRecord { id: String, status: RunStatus, started_at: String, finished_at: Option<String>, final_watchlist: Vec<String>, error_message: Option<String> }`, `ProgressEvent` (`#[serde(tag = "phase")]`, variants `Phase1`/`Phase2`/`Phase3 { total: usize, started: usize, passed: usize, technical_failures: usize, errors: usize }`, `Complete { final_watchlist: Vec<String> }`, `Failed { message: String }`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `apps/screener-app/ui/src/dto.rs`:
 
@@ -369,7 +369,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify the `todo!()` tests fail**
+- [x] **Step 2: Run to verify the `todo!()` tests fail**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -378,7 +378,7 @@ cargo test dto:: -- --nocapture 2>&1 | tail -30
 
 Expected: `progress_event_*` tests pass (already fully written), the three `todo!()` tests panic with `not yet implemented`.
 
-- [ ] **Step 3: Fill in the default-matching and round-trip tests**
+- [x] **Step 3: Fill in the default-matching and round-trip tests**
 
 Replace the three `todo!()` bodies:
 
@@ -495,7 +495,7 @@ impl Default for Phase3ConfigDto {
 }
 ```
 
-- [ ] **Step 4: Run tests, verify all pass**
+- [x] **Step 4: Run tests, verify all pass**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -504,7 +504,7 @@ cargo test dto:: -- --nocapture 2>&1 | tail -30
 
 Expected: 6 passed.
 
-- [ ] **Step 5: Wire the module in and verify both build targets**
+- [x] **Step 5: Wire the module in and verify both build targets**
 
 Add `mod dto;` to `apps/screener-app/ui/src/main.rs`.
 
@@ -514,7 +514,7 @@ cargo build
 dx build --platform web
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/vijay/Study/Screener
@@ -535,7 +535,7 @@ git commit -m "Add screener-app DTOs mirroring screener-service's JSON shapes"
 **Interfaces:**
 - Produces: `TokenStorage` trait (`get(&self) -> Option<String>`, `set(&self, token: &str)`), `InMemoryTokenStorage` (fully tested), `LocalTokenStorage` (compile-verified only, backed by `gloo_storage::LocalStorage`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `apps/screener-app/ui/src/token_storage.rs`:
 
@@ -613,7 +613,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -622,7 +622,7 @@ cargo test token_storage:: -- --nocapture 2>&1 | tail -20
 
 Expected: all 3 tests panic with `not yet implemented`.
 
-- [ ] **Step 3: Implement `InMemoryTokenStorage`**
+- [x] **Step 3: Implement `InMemoryTokenStorage`**
 
 ```rust
 impl TokenStorage for InMemoryTokenStorage {
@@ -636,7 +636,7 @@ impl TokenStorage for InMemoryTokenStorage {
 }
 ```
 
-- [ ] **Step 4: Run tests, verify all pass**
+- [x] **Step 4: Run tests, verify all pass**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -645,7 +645,7 @@ cargo test token_storage:: -- --nocapture 2>&1 | tail -20
 
 Expected: 3 passed.
 
-- [ ] **Step 5: Delete the now-unnecessary src-tauri IPC bridge**
+- [x] **Step 5: Delete the now-unnecessary src-tauri IPC bridge**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/src-tauri
@@ -664,7 +664,7 @@ pub fn run() {
 }
 ```
 
-- [ ] **Step 6: Wire the `ui` module in, verify both crates still build**
+- [x] **Step 6: Wire the `ui` module in, verify both crates still build**
 
 Add `mod token_storage;` to `apps/screener-app/ui/src/main.rs`.
 
@@ -676,7 +676,7 @@ cd /home/vijay/Study/Screener/apps/screener-app/src-tauri
 cargo build
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /home/vijay/Study/Screener
@@ -697,7 +697,7 @@ git commit -m "Add TokenStorage in the ui crate; remove the now-unneeded Tauri I
 - Consumes: `crate::dto::{FilterConfigDto, RunRecord}`
 - Produces: `ApiClient::new(base_url: impl Into<String>) -> Self` (derives `Clone`), `async fn get_filter_config(&self, token: &str) -> Result<FilterConfigDto, ApiError>`, `async fn put_filter_config(&self, token: &str, config: &FilterConfigDto) -> Result<FilterConfigDto, ApiError>`, `async fn trigger_run(&self, token: &str) -> Result<RunRecord, ApiError>`, `async fn get_run(&self, token: &str, run_id: &str) -> Result<RunRecord, ApiError>`, `async fn list_runs(&self, token: &str) -> Result<Vec<RunRecord>, ApiError>`, `async fn get_health(&self) -> Result<(), ApiError>`. `ApiError` is `Message(String)` (server-reported or HTTP-status-derived error) or `Request(reqwest::Error)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `apps/screener-app/ui/src/api.rs`:
 
@@ -847,7 +847,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failures**
+- [x] **Step 2: Run to verify failures**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -856,7 +856,7 @@ cargo test api:: -- --nocapture 2>&1 | tail -40
 
 Expected: compile error (`send` returns `todo!()`, `!` doesn't unify with `Result<String, ApiError>` — actually `todo!()` type-checks fine as it has type `!` coercing to anything, so expect the two written tests to panic with "not yet implemented" and the four `todo!()`-bodied tests to also panic).
 
-- [ ] **Step 3: Implement `send`**
+- [x] **Step 3: Implement `send`**
 
 ```rust
     async fn send(
@@ -887,7 +887,7 @@ Expected: compile error (`send` returns `todo!()`, `!` doesn't unify with `Resul
     }
 ```
 
-- [ ] **Step 4: Fill in the remaining tests**
+- [x] **Step 4: Fill in the remaining tests**
 
 ```rust
     #[tokio::test]
@@ -966,7 +966,7 @@ Expected: compile error (`send` returns `todo!()`, `!` doesn't unify with `Resul
     }
 ```
 
-- [ ] **Step 5: Run tests, verify all pass**
+- [x] **Step 5: Run tests, verify all pass**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -975,7 +975,7 @@ cargo test api:: -- --nocapture 2>&1 | tail -40
 
 Expected: 7 passed.
 
-- [ ] **Step 6: Wire the module in and verify both build targets**
+- [x] **Step 6: Wire the module in and verify both build targets**
 
 Add `mod api;` to `apps/screener-app/ui/src/main.rs`.
 
@@ -985,7 +985,7 @@ cargo build
 dx build --platform web
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /home/vijay/Study/Screener
@@ -1005,7 +1005,7 @@ git commit -m "Add screener-app REST API client with wiremock-backed tests"
 - Consumes: `crate::dto::ProgressEvent`
 - Produces: `pub fn build_stream_url(http_base: &str, token: &str, run_id: &str) -> String` (pure, tested), `pub struct StreamHandlers { pub on_event: Box<dyn Fn(ProgressEvent)>, pub on_close: Box<dyn Fn()> }`, `pub fn connect_run_stream(http_base: &str, token: &str, run_id: &str, handlers: StreamHandlers)` (compile-verified only — spawns a `wasm_bindgen_futures` task, needs a real browser WebSocket).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `apps/screener-app/ui/src/ws.rs`:
 
@@ -1074,7 +1074,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -1083,7 +1083,7 @@ cargo test ws:: -- --nocapture 2>&1 | tail -20
 
 Expected: 3 panics with `not yet implemented`.
 
-- [ ] **Step 3: Implement `build_stream_url`**
+- [x] **Step 3: Implement `build_stream_url`**
 
 ```rust
 pub fn build_stream_url(http_base: &str, token: &str, run_id: &str) -> String {
@@ -1098,7 +1098,7 @@ pub fn build_stream_url(http_base: &str, token: &str, run_id: &str) -> String {
 }
 ```
 
-- [ ] **Step 4: Run tests, verify all pass**
+- [x] **Step 4: Run tests, verify all pass**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -1107,7 +1107,7 @@ cargo test ws:: -- --nocapture 2>&1 | tail -20
 
 Expected: 3 passed.
 
-- [ ] **Step 5: Wire the module in and verify both build targets**
+- [x] **Step 5: Wire the module in and verify both build targets**
 
 Add `mod ws;` to `apps/screener-app/ui/src/main.rs`.
 
@@ -1117,7 +1117,7 @@ cargo build
 dx build --platform web
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/vijay/Study/Screener
@@ -1136,7 +1136,7 @@ git commit -m "Add screener-app WebSocket client with tested URL building"
 **Interfaces:**
 - Produces: `Screen` (`Dashboard` (default) / `FilterConfig` / `LiveRun` / `Watchlist` / `History`, `Debug + Clone + Copy + PartialEq + Eq + Default`), `RunSummary { status: String, final_watchlist: Vec<String> }` (`Debug + Clone + Default + PartialEq`), `AppState { token: Option<String>, active_run_id: Option<String>, last_run: Option<RunSummary>, screen: Screen }` (`Debug + Clone + Default + PartialEq`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `apps/screener-app/ui/src/state.rs`:
 
@@ -1176,7 +1176,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -1185,7 +1185,7 @@ cargo test state:: -- --nocapture 2>&1 | tail -10
 
 Expected: panic with `not yet implemented`.
 
-- [ ] **Step 3: Fill in the test**
+- [x] **Step 3: Fill in the test**
 
 ```rust
     #[test]
@@ -1198,7 +1198,7 @@ Expected: panic with `not yet implemented`.
     }
 ```
 
-- [ ] **Step 4: Run tests, verify it passes**
+- [x] **Step 4: Run tests, verify it passes**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -1207,7 +1207,7 @@ cargo test state:: -- --nocapture 2>&1 | tail -10
 
 Expected: 1 passed.
 
-- [ ] **Step 5: Wire the module in and verify both build targets**
+- [x] **Step 5: Wire the module in and verify both build targets**
 
 Add `mod state;` to `apps/screener-app/ui/src/main.rs`.
 
@@ -1217,7 +1217,7 @@ cargo build
 dx build --platform web
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/vijay/Study/Screener
@@ -1241,7 +1241,7 @@ git commit -m "Add screener-app AppState/Screen types"
 
 This is the point where the plan closes the scope gap in the JS predecessor: the spec (section 4) requires the Filter Config screen to expose **every** phase's condition toggles and period fields, not just Phase 3's VWAP toggle. There is no unit-testable logic here beyond what Tasks 2–6 already cover (Dioxus component rendering isn't unit-testable without a running app or an SSR harness) — verification is `cargo build` + `dx build --platform web` succeeding, exactly like the JS predecessor's screens were "syntax-checked only."
 
-- [ ] **Step 1: Create the screens module**
+- [x] **Step 1: Create the screens module**
 
 `apps/screener-app/ui/src/screens/mod.rs`:
 
@@ -1250,7 +1250,7 @@ pub mod dashboard;
 pub mod filter_config;
 ```
 
-- [ ] **Step 2: Write the Dashboard screen**
+- [x] **Step 2: Write the Dashboard screen**
 
 `apps/screener-app/ui/src/screens/dashboard.rs`:
 
@@ -1310,7 +1310,7 @@ pub fn Dashboard() -> Element {
 }
 ```
 
-- [ ] **Step 3: Write the Filter Config screen (all phases, matching the spec's toggle+period requirement)**
+- [x] **Step 3: Write the Filter Config screen (all phases, matching the spec's toggle+period requirement)**
 
 `apps/screener-app/ui/src/screens/filter_config.rs`:
 
@@ -1614,7 +1614,7 @@ pub fn FilterConfig() -> Element {
 }
 ```
 
-- [ ] **Step 4: Wire the module in and verify both build targets**
+- [x] **Step 4: Wire the module in and verify both build targets**
 
 Add `mod screens;` to `apps/screener-app/ui/src/main.rs`.
 
@@ -1626,7 +1626,7 @@ dx build --platform web
 
 Fix any Dioxus macro errors that surface (rsx! attribute/child syntax can be picky about trailing commas and expression braces) — this build is the correctness gate for this task since there is no unit-testable logic here.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /home/vijay/Study/Screener
@@ -1650,7 +1650,7 @@ git commit -m "Add Dashboard and full per-phase Filter Config screens"
 
 Same verification approach as Task 7: `cargo build` + `dx build --platform web` is the correctness gate.
 
-- [ ] **Step 1: Write the Live Run screen**
+- [x] **Step 1: Write the Live Run screen**
 
 `apps/screener-app/ui/src/screens/live_run.rs`:
 
@@ -1750,7 +1750,7 @@ pub fn LiveRun() -> Element {
 }
 ```
 
-- [ ] **Step 2: Write the Watchlist screen**
+- [x] **Step 2: Write the Watchlist screen**
 
 `apps/screener-app/ui/src/screens/watchlist.rs`:
 
@@ -1781,7 +1781,7 @@ pub fn Watchlist() -> Element {
 }
 ```
 
-- [ ] **Step 3: Write the History screen**
+- [x] **Step 3: Write the History screen**
 
 `apps/screener-app/ui/src/screens/history.rs`:
 
@@ -1824,7 +1824,7 @@ pub fn History() -> Element {
 }
 ```
 
-- [ ] **Step 4: Register the new screens**
+- [x] **Step 4: Register the new screens**
 
 `apps/screener-app/ui/src/screens/mod.rs`:
 
@@ -1836,7 +1836,7 @@ pub mod live_run;
 pub mod watchlist;
 ```
 
-- [ ] **Step 5: Verify both build targets**
+- [x] **Step 5: Verify both build targets**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -1846,7 +1846,7 @@ dx build --platform web
 
 Fix any Dioxus macro errors that surface.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/vijay/Study/Screener
@@ -1865,7 +1865,7 @@ git commit -m "Add Live Run, Watchlist, and History screens"
 - Consumes: every module from Tasks 2–8.
 - Produces: the real `App` component — nav across all 5 screens, providing `Signal<AppState>` and `ApiClient` via context, an init effect that loads the token from `LocalTokenStorage` and (mirroring the JS predecessor's resilience behavior) re-checks an in-progress run's status if one was already active.
 
-- [ ] **Step 1: Replace the placeholder `App` with the real app shell**
+- [x] **Step 1: Replace the placeholder `App` with the real app shell**
 
 `apps/screener-app/ui/src/main.rs`:
 
@@ -1952,7 +1952,7 @@ fn App() -> Element {
 }
 ```
 
-- [ ] **Step 2: Verify both build targets**
+- [x] **Step 2: Verify both build targets**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -1962,7 +1962,7 @@ dx build --platform web
 
 Fix any Dioxus macro errors (e.g. `RunStatus` needs `PartialEq` — already derived in Task 2 — for the `== dto::RunStatus::Running` comparison to compile).
 
-- [ ] **Step 3: Run the full `ui` test suite**
+- [x] **Step 3: Run the full `ui` test suite**
 
 ```bash
 cd /home/vijay/Study/Screener/apps/screener-app/ui
@@ -1971,7 +1971,7 @@ cargo test 2>&1 | tail -30
 
 Expected: all tests from Tasks 2, 3, 4, 5, 6 pass (dto: 6, token_storage: 3, api: 7, ws: 3, state: 1 — 20 total).
 
-- [ ] **Step 4: Real, visual, end-to-end verification — the actual regression test for the original white-screen bug**
+- [x] **Step 4: Real, visual, end-to-end verification — the actual regression test for the original white-screen bug**
 
 ```bash
 pkill -f target/debug/screener-app 2>/dev/null
@@ -1994,7 +1994,7 @@ convert /tmp/final-verify.xwd /tmp/final-verify.png
 
 Read `/tmp/final-verify.png` and confirm it shows the real nav bar (dashboard/filter-config/live-run/watchlist/history buttons) and the Dashboard screen's "Gateway: unreachable" (no `screener-service` is running in this check) — not a blank white window.
 
-- [ ] **Step 5: Verify the Android build pipeline still works end-to-end with the new frontend**
+- [x] **Step 5: Verify the Android build pipeline still works end-to-end with the new frontend**
 
 ```bash
 source "$HOME/.cargo/env" && source /home/vijay/.android-env
@@ -2004,7 +2004,7 @@ cargo tauri android build --debug --target aarch64 2>&1 | tail -40
 
 Expected: succeeds, producing an APK, exactly as it did with the JS frontend before this rewrite — proving the Dioxus swap didn't break the already-verified Android pipeline. If disk space runs out, `cargo clean` inside `apps/screener-app/src-tauri` first (Android cross-compile artifacts are large and fully regenerable).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/vijay/Study/Screener
