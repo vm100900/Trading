@@ -15,7 +15,10 @@ fn phase_label(phase: &str) -> &str {
     }
 }
 
-const API_BASE_URL: &str = "http://10.0.2.2:8080";
+const API_BASE_URL: &str = match option_env!("SCREENER_API_BASE_URL") {
+    Some(v) => v,
+    None => "http://10.0.2.2:8080",
+};
 
 #[component]
 pub fn LiveRun() -> Element {

@@ -1,0 +1,72 @@
+# screener-service + IB Gateway + Caddy (TLS termination).
+#
+#   cp .env.example .env      # then edit it
+#   docker compose up -d --build
+#
+# Bring-up order and testing notes are in deploy/README.md. Use a PAPER
+# account first (TRADING_MODE=paper): paper logins skip 2FA.
+
+services:
+  # IB Gateway with IBC auto-login, Xvfb and a VNC server, from the
+  # community image https://github.com/gnzsnz/ib-gateway-docker .
+  # It forwards the API socket to:
+  #   ib-gateway:4003  -> live   Gateway (port 4001 inside)
+  #   ib-gateway:4004  -> paper  Gateway (port 4002 inside)
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${TWS_USERID:?set in .env}
+      TWS_PASSWORD: ${TWS_PASSWORD:?set in .env}
+      TRADING_MODE: ${TRADING_MODE:-paper}   # paper | live
+      READ_ONLY_API: ${READ_ONLY_API:-yes}   # the screener only reads market data
+      BYPASS_WARNING: "yes"
+      AUTO_RESTART_TIME: ${IBKR_AUTO_RESTART_TIME:-11:59 PM}
+      TIME_ZONE: Etc/UTC
+      # For a LIVE account you must approve the IBKR Mobile 2FA push whenever
+      # the Gateway (re)starts. See README. Optional here:
+      TWOFA_TIMEOUT_ACTION: ${TWOFA_TIMEOUT_ACTION:-restart}
+    ports:
+      # Expose VNC on localhost only, for first-run debugging (password = TWS_PASSWORD).
+      - "127.0.0.1:5900:5900"
+    # The API socket stays on the internal compose network; screener-service
+    # reaches it as `ib-gateway:4003` / `:4004`. Don't publish it to the host.
+
+  screener-service:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - ib-gateway
+    environment:
+      SCREENER_AUTH_TOKEN: ${SCREENER_AUTH_TOKEN:?set in .env}
+      SCREENER_BIND: 0.0.0.0:8080
+      # Real engine: point at the paper (4004) or live (4003) forwarded port.
+      SCREENER_IBKR_ADDR: ${SCREENER_IBKR_ADDR:-ib-gateway:4004}
+      SCREENER_IBKR_CLIENT_ID: ${SCREENER_IBKR_CLIENT_ID:-11}
+      SCREENER_UNIVERSE_FILE: /etc/screener/universe.txt
+      RUST_LOG: ${RUST_LOG:-info}
+      # Set SCREENER_DEMO_ENGINE=1 in .env to run without Yahoo/IBKR.
+      SCREENER_DEMO_ENGINE: ${SCREENER_DEMO_ENGINE:-}
+    volumes:
+      - ./universe.txt:/etc/screener/universe.txt:ro
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - screener-service
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SCREENER_DOMAIN: ${SCREENER_DOMAIN:?set in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

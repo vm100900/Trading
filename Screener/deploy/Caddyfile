@@ -1,0 +1,14 @@
+# Automatic HTTPS (Let's Encrypt) for the screener API. SCREENER_DOMAIN comes
+# from the environment (set in .env, passed through by docker-compose).
+{$SCREENER_DOMAIN} {
+	encode gzip
+
+	# WebSocket upgrade for GET /runs/{id}/stream is handled transparently by
+	# reverse_proxy; no special config needed.
+	reverse_proxy screener-service:8080
+
+	log {
+		output stdout
+		format console
+	}
+}

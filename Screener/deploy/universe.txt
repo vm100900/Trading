@@ -1,0 +1,82 @@
+# Screening universe — one ticker per line. Blank lines and text after `#`
+# are ignored; symbols are upper-cased on load.
+#
+# This is a starter list of large, liquid US names (roughly the S&P 100).
+# Replace it with your own watchlist or a full index list. Every symbol here
+# hits Yahoo in Phase 1; only Phase 1 survivors are ever queried against IBKR
+# (which is rate-limited to ~60 requests / 10 min), so a very large universe
+# makes Phase 2/3 slow by design.
+
+AAPL
+MSFT
+NVDA
+AMZN
+GOOGL
+GOOG
+META
+BRK.B
+AVGO
+TSLA
+LLY
+JPM
+V
+UNH
+XOM
+MA
+COST
+HD
+PG
+JNJ
+NFLX
+BAC
+ABBV
+CRM
+CVX
+KO
+AMD
+PEP
+TMO
+WMT
+LIN
+ADBE
+MRK
+CSCO
+ACN
+MCD
+ABT
+GE
+PM
+IBM
+TXN
+QCOM
+INTU
+DIS
+CAT
+VZ
+GS
+NOW
+AMGN
+ISRG
+PFE
+UBER
+SPGI
+BKNG
+RTX
+AMAT
+HON
+NEE
+LOW
+T
+BLK
+SYK
+PGR
+ETN
+TJX
+C
+BSX
+ADP
+MDT
+GILD
+VRTX
+MU
+LRCX

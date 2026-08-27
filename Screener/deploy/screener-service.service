@@ -1,0 +1,36 @@
+# Native (non-Docker) alternative to docker-compose.
+#
+#   sudo cp target/release/screener-service /usr/local/bin/
+#   sudo mkdir -p /etc/screener
+#   sudo cp deploy/.env.example /etc/screener/screener.env   # then edit
+#   sudo cp deploy/universe.txt /etc/screener/universe.txt
+#   sudo cp deploy/screener-service.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now screener-service
+#
+# This unit assumes IB Gateway + IBC are already running on this host (native
+# install, or `docker run` of ghcr.io/gnzsnz/ib-gateway) and reachable at the
+# SCREENER_IBKR_ADDR in the env file — e.g. 127.0.0.1:4002 for a paper Gateway.
+# TLS: put Caddy or nginx in front, proxying your domain to 127.0.0.1:8080.
+
+[Unit]
+Description=screener-service (Phase 1-3 screening API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/screener/screener.env
+Environment=SCREENER_BIND=127.0.0.1:8080
+Environment=SCREENER_UNIVERSE_FILE=/etc/screener/universe.txt
+ExecStart=/usr/local/bin/screener-service
+Restart=always
+RestartSec=5
+DynamicUser=yes
+ReadOnlyPaths=/etc/screener
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

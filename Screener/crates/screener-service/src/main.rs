@@ -1,8 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use screener_core::data::ibkr::IbkrClient;
+use screener_core::data::yahoo::{YahooClient, YahooClientConfig};
 use screener_service::config::{FilterConfigDto, InMemoryFilterConfigStore};
-use screener_service::engine::{ProgressEvent, ScreeningEngine};
+use screener_service::engine::{ProgressEvent, RealScreeningEngine, ScreeningEngine};
 use screener_service::runs::InMemoryRunStore;
 use screener_service::{build_router, AppState};
 use tokio::sync::broadcast;
@@ -13,21 +15,9 @@ async fn main() {
 
     let auth_token = std::env::var("SCREENER_AUTH_TOKEN")
         .unwrap_or_else(|_| panic!("SCREENER_AUTH_TOKEN environment variable must be set"));
+    let bind = std::env::var("SCREENER_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
 
-    // `RealScreeningEngine` needs a live IBKR connection (`IbkrClient::connect`)
-    // and a universe list, neither of which this binary sources yet (deployment
-    // config and universe management are separate future plans). Default is a
-    // stub whose `POST /runs` fails fast; set `SCREENER_DEMO_ENGINE=1` for a
-    // fake engine that streams a scripted Phase 1 -> 2 -> 3 -> Complete run, so
-    // the API and the app's Live Run screen can be exercised end to end without
-    // Yahoo/IBKR.
-    let engine: Arc<dyn ScreeningEngine> = if std::env::var("SCREENER_DEMO_ENGINE").as_deref() == Ok("1")
-    {
-        tracing::warn!("SCREENER_DEMO_ENGINE=1 — using the scripted DemoScreeningEngine, not real screening");
-        Arc::new(DemoScreeningEngine)
-    } else {
-        Arc::new(NotYetConfiguredEngine)
-    };
+    let engine = build_engine().await;
 
     let state = AppState {
         auth_token,
@@ -38,9 +28,108 @@ async fn main() {
     };
 
     let app = build_router(state);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&bind).await.unwrap();
     tracing::info!("screener-service listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
+}
+
+/// Engine selection, in priority order:
+///
+/// * `SCREENER_DEMO_ENGINE=1` — a scripted fake run (no Yahoo/IBKR); for local
+///   and CI end-to-end checks of the API and the app.
+/// * `SCREENER_IBKR_ADDR` set — the real Phase 1->2->3 pipeline. Reads:
+///     - `SCREENER_IBKR_ADDR`      e.g. `127.0.0.1:4002` (paper) / `:4001` (live)
+///     - `SCREENER_IBKR_CLIENT_ID` integer, default `11`
+///     - `SCREENER_UNIVERSE_FILE`  path to a newline-separated symbol list
+///   The IBKR connection is opened fresh for each run (see
+///   `ReconnectingRealEngine`) so IB Gateway's nightly restart can't leave the
+///   service holding a dead socket.
+/// * otherwise — a stub whose `POST /runs` fails fast.
+async fn build_engine() -> Arc<dyn ScreeningEngine> {
+    if std::env::var("SCREENER_DEMO_ENGINE").as_deref() == Ok("1") {
+        tracing::warn!("SCREENER_DEMO_ENGINE=1 — scripted DemoScreeningEngine, not real screening");
+        return Arc::new(DemoScreeningEngine);
+    }
+
+    let Ok(ibkr_addr) = std::env::var("SCREENER_IBKR_ADDR") else {
+        tracing::warn!(
+            "no SCREENER_IBKR_ADDR set — POST /runs will fail until a real engine is configured"
+        );
+        return Arc::new(NotYetConfiguredEngine);
+    };
+
+    let client_id: i32 = std::env::var("SCREENER_IBKR_CLIENT_ID")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(11);
+
+    let universe_file = std::env::var("SCREENER_UNIVERSE_FILE")
+        .expect("SCREENER_UNIVERSE_FILE must be set when SCREENER_IBKR_ADDR is set");
+    let universe = load_universe(&universe_file);
+    tracing::info!(
+        "real engine: IBKR {ibkr_addr} (client_id {client_id}), {} symbols from {universe_file}",
+        universe.len()
+    );
+
+    // Fail fast on obvious misconfiguration: try one connection at startup so a
+    // bad address / down Gateway surfaces in the logs immediately rather than
+    // only on the first run. The connection is dropped again right away — each
+    // run opens its own.
+    match IbkrClient::connect(&ibkr_addr, client_id).await {
+        Ok(_) => tracing::info!("IBKR reachable at {ibkr_addr}"),
+        Err(e) => tracing::error!("IBKR not reachable at {ibkr_addr} yet: {e} (runs will retry)"),
+    }
+
+    Arc::new(ReconnectingRealEngine {
+        yahoo: Arc::new(YahooClient::new(YahooClientConfig::default())),
+        ibkr_addr,
+        client_id,
+        universe,
+    })
+}
+
+fn load_universe(path: &str) -> Vec<String> {
+    let contents = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("could not read SCREENER_UNIVERSE_FILE {path}: {e}"));
+    let symbols: Vec<String> = contents
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or("").trim().to_uppercase())
+        .filter(|l| !l.is_empty())
+        .collect();
+    if symbols.is_empty() {
+        panic!("SCREENER_UNIVERSE_FILE {path} contained no symbols");
+    }
+    symbols
+}
+
+/// Wraps `RealScreeningEngine`, opening a fresh `IbkrClient` connection for
+/// every run. One connection per screening run (not per symbol) still satisfies
+/// screener-core's "one persistent connection per run" rule, and it means IB
+/// Gateway's forced daily restart never leaves this process wedged.
+struct ReconnectingRealEngine {
+    yahoo: Arc<YahooClient>,
+    ibkr_addr: String,
+    client_id: i32,
+    universe: Vec<String>,
+}
+
+#[async_trait::async_trait]
+impl ScreeningEngine for ReconnectingRealEngine {
+    async fn run(
+        &self,
+        config: FilterConfigDto,
+        progress_tx: broadcast::Sender<ProgressEvent>,
+    ) -> Result<Vec<String>, String> {
+        let ibkr = IbkrClient::connect(&self.ibkr_addr, self.client_id)
+            .await
+            .map_err(|e| format!("IBKR connect ({}) failed: {e}", self.ibkr_addr))?;
+        let engine = RealScreeningEngine::new(
+            Arc::clone(&self.yahoo),
+            Arc::new(ibkr),
+            self.universe.clone(),
+        );
+        engine.run(config, progress_tx).await
+    }
 }
 
 struct NotYetConfiguredEngine;
@@ -52,7 +141,7 @@ impl ScreeningEngine for NotYetConfiguredEngine {
         _config: FilterConfigDto,
         _progress_tx: broadcast::Sender<ProgressEvent>,
     ) -> Result<Vec<String>, String> {
-        Err("no ScreeningEngine configured — wire RealScreeningEngine with a live IbkrClient before triggering runs".to_string())
+        Err("no ScreeningEngine configured — set SCREENER_IBKR_ADDR (+ SCREENER_UNIVERSE_FILE) or SCREENER_DEMO_ENGINE=1".to_string())
     }
 }
 
