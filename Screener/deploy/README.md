@@ -27,6 +27,14 @@ docker compose up -d --build
 docker compose logs -f screener-service
 ```
 
+> **The image build is fast** — `deploy/Dockerfile` just copies the prebuilt
+> static binary `deploy/bin/screener-service` (x86_64 musl, no glibc, runs on
+> any x86_64 Linux). After you change `screener-service` / `screener-core`
+> source, regenerate it on a machine with RAM to spare — `deploy/build-binary.sh`
+> — commit it, `git pull` on the VM, `docker compose up -d --build`. To compile
+> inside Docker instead (slow, wants ~2 GB RAM), point compose at
+> `deploy/Dockerfile.fromsource`.
+
 Expected in the logs:
 
 ```

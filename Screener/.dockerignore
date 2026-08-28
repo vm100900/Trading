@@ -1,6 +1,7 @@
 target
 apps
 docs
-deploy
 .git
 **/*.md
+# deploy/ is NOT ignored — deploy/Dockerfile COPYs deploy/bin/screener-service
+deploy/.env
